@@ -11,31 +11,48 @@ export default function ChatInterface() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   
-  // Viewport Height State for accurate mobile keyboard handling
-  const [viewportHeight, setViewportHeight] = useState('100%');
-  
-  // Refs
+  // Refs for Layout & Scrolling
+  const containerRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // --- Visual Viewport Handling ---
-  // This ensures the app container shrinks to fit the visible area ABOVE the keyboard
-  // instead of being pushed up by it.
+  // --- Visual Viewport Sync (The Anti-Jank Core) ---
+  // We use direct DOM manipulation in a layout effect to sync the container size/position
+  // with the visual viewport immediately, bypassing React render cycles for 60fps smoothness.
   useEffect(() => {
-    // Only run on client
     if (typeof window === 'undefined' || !window.visualViewport) return;
 
     const handleResize = () => {
-      // Set the app height to the actual visible height
-      setViewportHeight(`${window.visualViewport!.height}px`);
-      // Force window scroll to top to prevent document-level scrolling
-      window.scrollTo(0, 0);
+      if (!containerRef.current) return;
+      
+      const vv = window.visualViewport!;
+      
+      // 1. Set Height: Match the visible area exactly
+      containerRef.current.style.height = `${vv.height}px`;
+      
+      // 2. Set Top/Transform: Move the container to where the viewport actually is.
+      // On iOS, when the keyboard opens, the visual viewport 'offsetTop' changes
+      // relative to the layout viewport. We shift our fixed container to match it.
+      // We use 'top' here as it's often more stable for layout flow than transform in this specific case,
+      // but transform can be more performant. 'top' is safer for avoiding z-index stacking context issues with fixed children.
+      containerRef.current.style.top = `${vv.offsetTop}px`;
+      
+      // 3. Scroll Correction: Ensure the input stays visible
+      if (document.activeElement === textareaRef.current) {
+        // Optional: slight delay to ensure browser layout is done
+         setTimeout(() => {
+             if (scrollAreaRef.current) {
+                 scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+             }
+         }, 50);
+      }
     };
 
+    // Listeners
     window.visualViewport.addEventListener('resize', handleResize);
     window.visualViewport.addEventListener('scroll', handleResize);
     
-    // Initial calculation
+    // Initial sync
     handleResize();
 
     return () => {
@@ -53,14 +70,12 @@ export default function ChatInterface() {
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
     if (textarea) {
-      textarea.style.height = 'auto'; // Reset to calculate shrinkage
-      // Cap max height at 150px (~6 lines)
+      textarea.style.height = 'auto'; 
       textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`; 
     }
   };
 
   // --- Scroll Management ---
-  // Scroll to bottom whenever messages change
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current;
@@ -68,19 +83,7 @@ export default function ChatInterface() {
     }
   }, [messages, isStreaming]);
 
-  // When keyboard opens (viewport resizes), ensure we still see the bottom
-  useEffect(() => {
-    if (scrollAreaRef.current) {
-      // Small timeout to allow layout to settle
-      setTimeout(() => {
-        if (scrollAreaRef.current) {
-           scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-        }
-      }, 100);
-    }
-  }, [viewportHeight]);
-
-  // --- Message Submission & Mock Streaming ---
+  // --- Message Submission ---
   const sendMessage = async () => {
     if (!input.trim()) return;
 
@@ -91,12 +94,11 @@ export default function ChatInterface() {
     setInput('');
     setIsStreaming(true);
     
-    // Reset textarea height immediately
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
     
-    // Mock Agent Response logic
+    // Mock Agent Response
     setTimeout(() => {
       const agentMsgId = (Date.now() + 1).toString();
       setMessages(prev => [...prev, { id: agentMsgId, role: 'agent', content: '' }]);
@@ -128,11 +130,12 @@ export default function ChatInterface() {
 
   return (
     // MAIN CONTAINER: 
-    // We use fixed positioning + dynamic height from VisualViewport API
-    // This is the gold standard for "Native-like" mobile web apps.
+    // Position fixed at 0,0 initially, but controlled by the ref above to move with the Visual Viewport.
+    // 'w-full' ensures width is 100%. 'overflow-hidden' prevents double scrollbars.
     <div 
-      style={{ height: viewportHeight }}
-      className="fixed top-0 left-0 w-full bg-white text-slate-900 overflow-hidden font-sans flex flex-col"
+      ref={containerRef}
+      className="fixed left-0 w-full bg-white text-slate-900 overflow-hidden font-sans flex flex-col"
+      style={{ height: '100%', top: 0 }} // Default fallbacks
     >
       
       {/* Sidebar Component */}
@@ -144,8 +147,7 @@ export default function ChatInterface() {
       {/* --- MAIN CHAT AREA --- */}
       <main className="flex-1 flex flex-col min-w-0 relative h-full">
         
-        {/* HEADER */}
-        {/* flex-shrink-0 ensures it never squishes */}
+        {/* HEADER - Fixed at the top of the flex container */}
         <header className="h-14 border-b flex items-center px-4 justify-between bg-white flex-shrink-0 z-10 shadow-sm transition-all">
           <div className="flex items-center gap-3">
             <button 
@@ -164,7 +166,7 @@ export default function ChatInterface() {
             </div>
           </div>
           <div className="text-gray-400">
-             {/* Add right-side icons like 'Search' or 'More' if needed */}
+             {/* Right side icons */}
           </div>
         </header>
 
@@ -208,12 +210,13 @@ export default function ChatInterface() {
         </div>
 
         {/* INPUT AREA */}
-        {/* The pb-safe class (defined in index.html) handles the Home Indicator area */}
+        {/* We do NOT need pb-safe here usually if we are tracking visual viewport exactly, 
+            but keeping it is good practice for non-keyboard states on iPhone X+ */}
         <div className="border-t bg-white flex-shrink-0 pb-safe z-20">
           <div className="p-3">
             <div className="flex items-end gap-2 bg-white border border-gray-200 rounded-2xl p-2 shadow-sm focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-500 transition-all">
               
-              {/* Attachment Button (Desktop only mostly) */}
+              {/* Attachment Button */}
               <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors hidden sm:block rounded-full hover:bg-gray-100">
                 <Paperclip size={20} />
               </button>
