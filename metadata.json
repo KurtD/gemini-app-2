@@ -1,0 +1,5 @@
+{
+  "name": "SmoothChat - Mobile Optimized",
+  "description": "A responsive, mobile-first chat interface designed to eliminate layout jankiness using dynamic viewport units and isolated scrolling areas.",
+  "requestFramePermissions": []
+}
