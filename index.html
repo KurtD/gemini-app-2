@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
     <title>SmoothChat</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -20,11 +20,11 @@
         width: 100%;
         margin: 0;
         padding: 0;
-        overflow: hidden; /* Prevent body scroll */
+        overflow: hidden; /* Prevent body scroll completely */
         -webkit-tap-highlight-color: transparent;
-        /* Critical for iOS: locks the body in place so only the inner app container resizes */
         position: fixed; 
         inset: 0;
+        touch-action: none; /* Disable default touch actions to prevent scroll chaining */
       }
       
       /* Custom scrollbar for desktop mostly, hidden on mobile usually */
@@ -50,7 +50,7 @@
 }
 </script>
 </head>
-  <body>
+  <body scrolling="no">
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
   </body>

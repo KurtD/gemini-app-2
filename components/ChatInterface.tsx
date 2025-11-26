@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { Send, Paperclip, Menu, Bot } from 'lucide-react';
 import { Message } from '../types';
 import Sidebar from './Sidebar';
@@ -15,49 +15,68 @@ export default function ChatInterface() {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Track if we are currently touching the screen to avoid fighting user scroll
+  const isTouchingRef = useRef(false);
 
-  // --- Visual Viewport Sync (The Anti-Jank Core) ---
-  // We use direct DOM manipulation in a layout effect to sync the container size/position
-  // with the visual viewport immediately, bypassing React render cycles for 60fps smoothness.
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) return;
+  // --- Visual Viewport Sync (The High-Performance Fix) ---
+  // We use `transform` instead of `top` to avoid layout reflows (jank).
+  // We sync strictly to window.visualViewport to handle iOS keyboard pushing.
+  useLayoutEffect(() => {
+    // Only run on client
+    if (typeof window === 'undefined') return;
 
     const handleResize = () => {
-      if (!containerRef.current) return;
+      if (!containerRef.current || !window.visualViewport) return;
       
-      const vv = window.visualViewport!;
+      const vv = window.visualViewport;
       
       // 1. Set Height: Match the visible area exactly
       containerRef.current.style.height = `${vv.height}px`;
       
-      // 2. Set Top/Transform: Move the container to where the viewport actually is.
-      // On iOS, when the keyboard opens, the visual viewport 'offsetTop' changes
-      // relative to the layout viewport. We shift our fixed container to match it.
-      // We use 'top' here as it's often more stable for layout flow than transform in this specific case,
-      // but transform can be more performant. 'top' is safer for avoiding z-index stacking context issues with fixed children.
-      containerRef.current.style.top = `${vv.offsetTop}px`;
+      // 2. Set Position: Use transform to counteract any document scroll/pan.
+      // On iOS, offsetTop > 0 means the browser pushed the view up. 
+      // We slide our container down by that amount to keep it visually fixed at the top.
+      // Using translate3d forces GPU acceleration.
+      containerRef.current.style.transform = `translate3d(0, ${vv.offsetTop}px, 0)`;
       
-      // 3. Scroll Correction: Ensure the input stays visible
-      if (document.activeElement === textareaRef.current) {
-        // Optional: slight delay to ensure browser layout is done
-         setTimeout(() => {
-             if (scrollAreaRef.current) {
-                 scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-             }
-         }, 50);
+      // 3. Scroll Correction: Keep input visible
+      // Only force scroll to bottom if we aren't manually scrolling up to read history
+      if (document.activeElement === textareaRef.current && !isTouchingRef.current) {
+          if (scrollAreaRef.current) {
+               // We use a small tolerance to check if we were already at bottom
+               const { scrollTop, scrollHeight, clientHeight } = scrollAreaRef.current;
+               const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+               
+               if (isAtBottom) {
+                   scrollAreaRef.current.scrollTop = scrollHeight;
+               }
+          }
       }
     };
 
     // Listeners
-    window.visualViewport.addEventListener('resize', handleResize);
-    window.visualViewport.addEventListener('scroll', handleResize);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize);
+      window.visualViewport.addEventListener('scroll', handleResize);
+      // Initial sync
+      handleResize();
+    }
     
-    // Initial sync
-    handleResize();
+    // Add touch tracking to prevent jarring scrolls while user is interacting
+    const handleTouchStart = () => { isTouchingRef.current = true; };
+    const handleTouchEnd = () => { isTouchingRef.current = false; };
+    
+    window.addEventListener('touchstart', handleTouchStart);
+    window.addEventListener('touchend', handleTouchEnd);
 
     return () => {
-      window.visualViewport?.removeEventListener('resize', handleResize);
-      window.visualViewport?.removeEventListener('scroll', handleResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleResize);
+        window.visualViewport.removeEventListener('scroll', handleResize);
+      }
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
   }, []);
 
@@ -74,8 +93,22 @@ export default function ChatInterface() {
       textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`; 
     }
   };
+  
+  // Focus handler to ensure viewport sync happens immediately when keyboard triggers
+  const handleFocus = () => {
+    // Force a visual viewport check after a short delay to allow keyboard animation to start
+    setTimeout(() => {
+        if (window.visualViewport) {
+            window.visualViewport.dispatchEvent(new Event('resize'));
+            if (scrollAreaRef.current) {
+                scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+            }
+        }
+    }, 300);
+  };
 
   // --- Scroll Management ---
+  // Scroll to bottom when messages change
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current;
@@ -96,6 +129,9 @@ export default function ChatInterface() {
     
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
+      // Refocus to keep keyboard open if desired, or let it close. 
+      // Usually keeping it open is better for chat flow.
+      textareaRef.current.focus(); 
     }
     
     // Mock Agent Response
@@ -130,12 +166,12 @@ export default function ChatInterface() {
 
   return (
     // MAIN CONTAINER: 
-    // Position fixed at 0,0 initially, but controlled by the ref above to move with the Visual Viewport.
+    // Fixed position. We control Top/Height manually via Transform.
     // 'w-full' ensures width is 100%. 'overflow-hidden' prevents double scrollbars.
     <div 
       ref={containerRef}
-      className="fixed left-0 w-full bg-white text-slate-900 overflow-hidden font-sans flex flex-col"
-      style={{ height: '100%', top: 0 }} // Default fallbacks
+      className="fixed left-0 top-0 w-full bg-white text-slate-900 overflow-hidden font-sans flex flex-col will-change-transform"
+      style={{ height: '100%' }} // Initial fallback
     >
       
       {/* Sidebar Component */}
@@ -210,8 +246,6 @@ export default function ChatInterface() {
         </div>
 
         {/* INPUT AREA */}
-        {/* We do NOT need pb-safe here usually if we are tracking visual viewport exactly, 
-            but keeping it is good practice for non-keyboard states on iPhone X+ */}
         <div className="border-t bg-white flex-shrink-0 pb-safe z-20">
           <div className="p-3">
             <div className="flex items-end gap-2 bg-white border border-gray-200 rounded-2xl p-2 shadow-sm focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-500 transition-all">
@@ -228,6 +262,7 @@ export default function ChatInterface() {
                 value={input}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
+                onFocus={handleFocus}
                 placeholder="Type a message..."
                 className="flex-1 max-h-[150px] bg-transparent border-none focus:ring-0 resize-none p-2 text-base leading-6 overflow-y-auto min-h-[40px] outline-none placeholder:text-gray-400"
                 style={{ height: 'auto' }}
