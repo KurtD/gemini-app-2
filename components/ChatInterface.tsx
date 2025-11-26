@@ -11,10 +11,38 @@ export default function ChatInterface() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   
+  // Viewport Height State for accurate mobile keyboard handling
+  const [viewportHeight, setViewportHeight] = useState('100%');
+  
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Removed messagesEndRef as we will use direct scrollTop manipulation
+
+  // --- Visual Viewport Handling ---
+  // This ensures the app container shrinks to fit the visible area ABOVE the keyboard
+  // instead of being pushed up by it.
+  useEffect(() => {
+    // Only run on client
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+
+    const handleResize = () => {
+      // Set the app height to the actual visible height
+      setViewportHeight(`${window.visualViewport!.height}px`);
+      // Force window scroll to top to prevent document-level scrolling
+      window.scrollTo(0, 0);
+    };
+
+    window.visualViewport.addEventListener('resize', handleResize);
+    window.visualViewport.addEventListener('scroll', handleResize);
+    
+    // Initial calculation
+    handleResize();
+
+    return () => {
+      window.visualViewport?.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('scroll', handleResize);
+    };
+  }, []);
 
   // --- Auto-Resize Textarea Logic ---
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -32,14 +60,25 @@ export default function ChatInterface() {
   };
 
   // --- Scroll Management ---
-  // We use direct DOM manipulation for scroll position. 
-  // This is often smoother on mobile than scrollIntoView which can trigger layout shifts.
+  // Scroll to bottom whenever messages change
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current;
       scrollContainer.scrollTop = scrollContainer.scrollHeight;
     }
-  }, [messages, isStreaming]); // Run whenever messages update or streaming status changes
+  }, [messages, isStreaming]);
+
+  // When keyboard opens (viewport resizes), ensure we still see the bottom
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      // Small timeout to allow layout to settle
+      setTimeout(() => {
+        if (scrollAreaRef.current) {
+           scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+        }
+      }, 100);
+    }
+  }, [viewportHeight]);
 
   // --- Message Submission & Mock Streaming ---
   const sendMessage = async () => {
@@ -71,9 +110,6 @@ export default function ChatInterface() {
             ? { ...msg, content: msg.content + responseText.charAt(i) }
             : msg
         ));
-        
-        // No manual scroll needed here; the useEffect above handles it on every state update.
-
         i++;
         if (i >= responseText.length) {
           clearInterval(interval);
@@ -92,9 +128,12 @@ export default function ChatInterface() {
 
   return (
     // MAIN CONTAINER: 
-    // h-[100dvh] ensures it fits exactly to the mobile viewport (ignoring address bars)
-    // overflow-hidden prevents the 'whole page' from scrolling
-    <div className="flex h-[100dvh] w-full bg-white text-slate-900 overflow-hidden font-sans">
+    // We use fixed positioning + dynamic height from VisualViewport API
+    // This is the gold standard for "Native-like" mobile web apps.
+    <div 
+      style={{ height: viewportHeight }}
+      className="fixed top-0 left-0 w-full bg-white text-slate-900 overflow-hidden font-sans flex flex-col"
+    >
       
       {/* Sidebar Component */}
       <Sidebar 
@@ -103,10 +142,11 @@ export default function ChatInterface() {
       />
 
       {/* --- MAIN CHAT AREA --- */}
-      <main className="flex-1 flex flex-col min-w-0 relative">
+      <main className="flex-1 flex flex-col min-w-0 relative h-full">
         
         {/* HEADER */}
-        <header className="h-14 border-b flex items-center px-4 justify-between bg-white flex-shrink-0 z-10 shadow-sm">
+        {/* flex-shrink-0 ensures it never squishes */}
+        <header className="h-14 border-b flex items-center px-4 justify-between bg-white flex-shrink-0 z-10 shadow-sm transition-all">
           <div className="flex items-center gap-3">
             <button 
               className="md:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors" 
@@ -129,12 +169,10 @@ export default function ChatInterface() {
         </header>
 
         {/* MESSAGES LIST AREA */}
-        {/* flex-1: Takes available space */}
-        {/* overflow-y-auto: Only THIS section scrolls */}
-        {/* overscroll-contain: Prevents pull-to-refresh interfering on mobile */}
+        {/* flex-1: Takes available space between Header and Input */}
         <div 
           ref={scrollAreaRef}
-          className="flex-1 overflow-y-auto p-4 space-y-6 overscroll-contain bg-white custom-scrollbar"
+          className="flex-1 overflow-y-auto p-4 space-y-6 overscroll-contain bg-white custom-scrollbar scroll-smooth"
         >
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-2 mt-[-50px]">
@@ -170,8 +208,8 @@ export default function ChatInterface() {
         </div>
 
         {/* INPUT AREA */}
-        {/* pb-safe: Handles iPhone Home Indicator area automatically via CSS in index.html */}
-        <div className="border-t bg-white flex-shrink-0 pb-safe">
+        {/* The pb-safe class (defined in index.html) handles the Home Indicator area */}
+        <div className="border-t bg-white flex-shrink-0 pb-safe z-20">
           <div className="p-3">
             <div className="flex items-end gap-2 bg-white border border-gray-200 rounded-2xl p-2 shadow-sm focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-500 transition-all">
               

@@ -22,6 +22,9 @@
         padding: 0;
         overflow: hidden; /* Prevent body scroll */
         -webkit-tap-highlight-color: transparent;
+        /* Critical for iOS: locks the body in place so only the inner app container resizes */
+        position: fixed; 
+        inset: 0;
       }
       
       /* Custom scrollbar for desktop mostly, hidden on mobile usually */
