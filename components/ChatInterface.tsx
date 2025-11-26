@@ -14,7 +14,7 @@ export default function ChatInterface() {
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Removed messagesEndRef as we will use direct scrollTop manipulation
 
   // --- Auto-Resize Textarea Logic ---
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -32,13 +32,14 @@ export default function ChatInterface() {
   };
 
   // --- Scroll Management ---
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
-  };
-
+  // We use direct DOM manipulation for scroll position. 
+  // This is often smoother on mobile than scrollIntoView which can trigger layout shifts.
   useEffect(() => {
-    scrollToBottom('auto'); // Instant scroll on new message
-  }, [messages]);
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current;
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    }
+  }, [messages, isStreaming]); // Run whenever messages update or streaming status changes
 
   // --- Message Submission & Mock Streaming ---
   const sendMessage = async () => {
@@ -57,7 +58,6 @@ export default function ChatInterface() {
     }
     
     // Mock Agent Response logic
-    // In a real app, this would be your API call
     setTimeout(() => {
       const agentMsgId = (Date.now() + 1).toString();
       setMessages(prev => [...prev, { id: agentMsgId, role: 'agent', content: '' }]);
@@ -72,14 +72,7 @@ export default function ChatInterface() {
             : msg
         ));
         
-        // Auto scroll during stream if near bottom (optional, but good UX)
-        if (scrollAreaRef.current) {
-            const { scrollTop, scrollHeight, clientHeight } = scrollAreaRef.current;
-            const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-            if (isNearBottom) {
-                scrollToBottom('smooth');
-            }
-        }
+        // No manual scroll needed here; the useEffect above handles it on every state update.
 
         i++;
         if (i >= responseText.length) {
@@ -174,8 +167,6 @@ export default function ChatInterface() {
               </div>
             ))
           )}
-          {/* Invisible element to scroll to */}
-          <div ref={messagesEndRef} />
         </div>
 
         {/* INPUT AREA */}
