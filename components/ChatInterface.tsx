@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip, Menu, Bot } from 'lucide-react';
 import { Message } from '../types';
 import Sidebar from './Sidebar';
@@ -14,50 +14,6 @@ export default function ChatInterface() {
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  
-  // --- Virtual Viewport Logic (The Fix) ---
-  // We manually track the Visual Viewport. If iOS pushes the viewport up (offsetTop > 0),
-  // we translate our container DOWN by the same amount. This creates a "floating window"
-  // that stays perfectly pinned to the visible glass, regardless of browser panning.
-  useLayoutEffect(() => {
-    const handleVisualViewportChange = () => {
-      if (!viewportRef.current || !window.visualViewport) return;
-
-      const vv = window.visualViewport;
-      
-      // 1. Force Height to match visible area (keyboard handling)
-      viewportRef.current.style.height = `${vv.height}px`;
-      
-      // 2. Counteract Browser Pan (Header Fix)
-      // If vv.offsetTop is 100px, the browser has scrolled down 100px.
-      // We move our app "down" 100px so it stays in the user's view.
-      viewportRef.current.style.transform = `translateY(${vv.offsetTop}px)`;
-      
-      // 3. Optional: Try to scroll window back to 0 to prevent further drift
-      window.scrollTo(0, 0);
-    };
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleVisualViewportChange);
-      window.visualViewport.addEventListener('scroll', handleVisualViewportChange);
-      
-      // Initial call
-      handleVisualViewportChange();
-    }
-
-    // Also listen to window scroll to force it back
-    const handleWindowScroll = () => window.scrollTo(0, 0);
-    window.addEventListener('scroll', handleWindowScroll);
-
-    return () => {
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleVisualViewportChange);
-        window.visualViewport.removeEventListener('scroll', handleVisualViewportChange);
-      }
-      window.removeEventListener('scroll', handleWindowScroll);
-    };
-  }, []);
 
   // --- Auto-Resize Textarea Logic ---
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -74,6 +30,16 @@ export default function ChatInterface() {
   };
   
   // --- Scroll Management ---
+  useEffect(() => {
+    // Safety mechanism: If browser tries to scroll the body/html, force it back.
+    // This helps strictly enforce the "App Layout" paradigm.
+    const handleScroll = () => {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current;
@@ -94,7 +60,10 @@ export default function ChatInterface() {
     
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.focus(); 
+      // preventScroll is KEY here. It tells the browser "Focus this element, 
+      // but do NOT try to scroll the document to bring it into view." 
+      // Since our layout handles the view, this prevents the "jump".
+      textareaRef.current.focus({ preventScroll: true }); 
     }
     
     // Mock Agent Response
@@ -129,14 +98,10 @@ export default function ChatInterface() {
 
   return (
     // MAIN CONTAINER 
-    // We do NOT use fixed positioning here directly in CSS.
-    // Instead, we let the JS control the transform/height to float it over the viewport.
-    // 'fixed' in CSS + 'translateY' in JS is the winning combo.
-    <div 
-      ref={viewportRef}
-      className="fixed left-0 right-0 top-0 flex flex-col bg-white text-slate-900 overflow-hidden font-sans origin-top"
-      style={{ height: '100%' }} // Initial fallback
-    >
+    // Uses fixed inset-0 to pin to the Viewport edges.
+    // With interactive-widget=resizes-content, the "bottom" edge 
+    // automatically moves up to sit on top of the keyboard.
+    <div className="fixed inset-0 flex flex-col bg-white text-slate-900 overflow-hidden font-sans">
       
       <Sidebar 
         isOpen={isSidebarOpen} 
