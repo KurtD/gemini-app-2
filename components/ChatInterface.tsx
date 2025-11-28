@@ -84,9 +84,16 @@ export default function ChatInterface() {
     }
   };
 
+  // Hack style to force GPU composition layer on iOS
+  const gpuHackStyle = {
+    opacity: 0.99999, // Magic number to force new layer
+    transform: 'translateZ(0)',
+    WebkitTransform: 'translateZ(0)',
+  };
+
   return (
-    // MAIN CONTAINER
-    <div className="flex h-full w-full bg-white text-slate-900 overflow-hidden font-sans">
+    // MAIN CONTAINER - Fixed inset-0 to lock it to viewport
+    <div className="fixed inset-0 flex bg-white text-slate-900 overflow-hidden font-sans">
       
       {/* Sidebar Component */}
       <Sidebar 
@@ -94,15 +101,22 @@ export default function ChatInterface() {
         onClose={() => setIsSidebarOpen(false)} 
       />
 
-      {/* --- MAIN CHAT AREA --- */}
-      <main className="flex-1 flex flex-col min-w-0 relative h-full">
+      {/* --- MAIN CHAT AREA --- 
+          Flex column layout:
+          - Header: Flex-none (Static top)
+          - Messages: Flex-1 (Scrollable middle)
+          - Input: Flex-none (Static bottom)
+      */}
+      <main className="flex-1 flex flex-col min-w-0 relative h-full bg-white">
         
-        {/* HEADER - Fixed Position 
-            - 'fixed' pulls it out of the flow so it stays at the top of the viewport
-            - 'md:left-72' accounts for the sidebar width on desktop
-            - 'z-10' ensures it stays above scrolling content
+        {/* HEADER 
+            Not position:fixed, but a flex item. 
+            Because the container is fixed, this stays at the top naturally.
         */}
-        <header className="fixed top-0 right-0 left-0 md:left-72 h-14 border-b flex items-center px-4 justify-between bg-white/95 backdrop-blur-sm z-10 shadow-sm transition-all duration-300">
+        <header 
+          style={gpuHackStyle}
+          className="flex-none h-14 border-b flex items-center px-4 justify-between bg-white/95 backdrop-blur-sm z-30 shadow-sm transition-all duration-300 relative"
+        >
           <div className="flex items-center gap-3">
             <button 
               className="md:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors" 
@@ -125,12 +139,11 @@ export default function ChatInterface() {
         </header>
 
         {/* MESSAGES LIST AREA 
-            - 'pt-14' adds padding to the top so the first message isn't hidden behind the fixed header
-            - 'flex-1' ensures it takes up all remaining space
+            Flex-1 takes all available height. Overflow-y-auto handles scrolling internally.
         */}
         <div 
           ref={scrollAreaRef}
-          className="flex-1 overflow-y-auto pt-14 p-4 space-y-6 overscroll-contain bg-white custom-scrollbar scroll-smooth"
+          className="flex-1 overflow-y-auto p-4 space-y-6 overscroll-contain bg-white custom-scrollbar scroll-smooth"
         >
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-2 mt-[-20px]">
@@ -166,10 +179,13 @@ export default function ChatInterface() {
         </div>
 
         {/* INPUT AREA 
-            - Stays in the flow at the bottom of the flex container
-            - Because viewport-resize is enabled in meta, this will automatically move up with the keyboard
+            Flex-none keeps it at the bottom. 
+            gpuHackStyle ensures it composites on its own layer, fixing iOS keyboard jitter.
         */}
-        <div className="border-t bg-white flex-shrink-0 pb-safe z-20">
+        <div 
+          style={gpuHackStyle}
+          className="flex-none border-t bg-white pb-safe z-30 relative"
+        >
           <div className="p-3">
             <div className="flex items-end gap-2 bg-white border border-gray-200 rounded-2xl p-2 shadow-sm focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-500 transition-all">
               
